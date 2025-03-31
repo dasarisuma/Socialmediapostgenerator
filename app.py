@@ -34,14 +34,14 @@ def validate_content(text, content_type):
 
     try:
         # Content safety check
-        safety_prompt = f"""You are a content moderation AI. 
-        TASK: Analyze the provided {text} and determine if it contains inappropriate content.
-        - Check for: explicit content, hate speech, violence, harassment, illegal activities, sexual content, adulterated content
+        safety_prompt = f"""You are a content moderation AI Validator. 
+        TASK: Analyze the provided {text} and determine if it contains the following content.
+        - Check for: hate speech, violence, harassment, illegal activities, sexual content, adulterated content
         - Also flag content promoting: self-harm, terrorism, scams, discrimination, abuse
         - Consider context carefully to avoid false positives
         
         OUTPUT FORMAT: Respond with ONLY ONE of these options:
-        "SAFE" - If content is appropriate for professional use
+        "SAFE" - If content is appropriate for use
         "UNSAFE: [reason]" - If content violates guidelines (briefly explain why)
         """
 
@@ -51,8 +51,8 @@ def validate_content(text, content_type):
                 {"role": "user", "content": f"Moderate this {content_type}: {text}"}
             ],
             model="deepseek-r1-distill-llama-70b",
-            temperature=0.0,
-            max_tokens=100
+            temperature=0.2,
+            max_tokens=300
         )
 
         safety_result = safety_response.choices[0].message.content.strip()
@@ -76,23 +76,23 @@ def generate_content(content_brief, platform, creativity):
     # Platform-specific character limits
     platform_limits = {
         "LinkedIn": "1200-1500",
-        "Twitter": "240",
+        "Twitter": "350",
         "Instagram": "700-1000"
     }
 
-    system_prompt = f"""You are an expert social media content creator for {platform} with years of professional experience.
+    system_prompt = f"""You are an expert social media content creator for {platform}.
 
 TASK: Generate TWO distinct outputs separated by [SEPARATOR] without any explanations or thinking:
 
 1. SOCIAL MEDIA COPY:
-- Create authentic {platform}-optimized copy with the right tone and emoji usage 
+- Create an engaging {platform}-optimized post with the right tone and emoji usage 
 - Include relevant hashtags tailored specifically for {platform}'s audience
 - Add a clear call-to-action that drives engagement
 - Ensure the copy feels natural and human-written, not AI-generated
 - IMPORTANT: Keep length within {platform_limits.get(platform, "700-1000")} characters for {platform}
 
 2. IMAGE PROMPT:
-- Create a detailed, professional visual prompt for AI image generation
+- Create a detailed visual prompt for professional AI image generation
 - Include specific subject positioning, camera angle, lighting, and mood
 - Specify a cohesive color palette that aligns with the message tone
 - Add depth cues like foreground/midground/background elements
@@ -143,8 +143,8 @@ Your detailed image generation prompt here...
 
         # Check for refusal indicators
         refusal_indicators = [
-            "cannot generate", "unable to create", "I apologize", "I'm sorry",
-            "cannot fulfill", "refuse to", "violates guidelines", "not appropriate"
+            "cannot generate", "unable to create",  
+            "violates guidelines", "against policy", "restricted", "not feasible"
         ]
 
         if any(indicator.lower() in social_copy.lower() for indicator in refusal_indicators) or \
@@ -226,22 +226,26 @@ def refine_content(content_type, feedback, platform):
     if not GROQ_KEY:
         return "ERROR", "API key is missing. Please configure your GROQ_KEY."
 
-    # System prompts for image vs. text
+    # Retrieve existing content based on content_type
     if content_type == "image":
+        existing_content = st.session_state.image_prompt
         system_prompt = f"""You are a professional AI image prompt engineer.
-TASK: Produce a refined image prompt based on user feedback.
+TASK: Produce a refined image prompt based on existing prompt and user feedback.
+- Existing Prompt: {existing_content}
 - Integrate the user's feedback while creating a new compelling image concept
+- Maintain core elements of the original prompt
 - Ensure detailed specifications for subject, lighting, colors, perspective, and environment
 - Always include technical specs: 8k resolution, professional photography, ultra detailed
 - NEVER create prompts for inappropriate, offensive, violent, explicit, or unsafe imagery
 - Focus on clean, professional imagery suitable for business use
-- Verify the feedback is relevant to image generation
 
-OUTPUT FORMAT: Provide the new refined image prompt only.
-If feedback is irrelevant, explain why it cannot be used for image generation.
 
-USER FEEDBACK: {feedback}"""
+
+USER FEEDBACK: {feedback}
+
+OUTPUT FORMAT: Provide the new refined image prompt only."""
     else:  # For social copy
+        existing_content = st.session_state.social_copy
         platform_limits = {
             "LinkedIn": "1200-1500",
             "Twitter": "240",
@@ -249,25 +253,29 @@ USER FEEDBACK: {feedback}"""
         }
 
         system_prompt = f"""You are a professional social media content specialist for {platform}.
-TASK: Produce refined social media copy based on user feedback.
-- Create new copy that incorporates user feedback
+TASK: Produce refined social media copy based on existing content and user feedback.
+- Existing Copy: {existing_content}
+- Create new engaging {platform}-optimized post that incorporates {feedback}
+- Maintain the core message and intent of the original copy 
 - Follow {platform} best practices for engagement
+- Include relevant hashtags tailored specifically for {platform}'s audience
+- Add a clear call-to-action that drives engagement
 - IMPORTANT: Keep length within {platform_limits.get(platform, "700-1000")} characters for {platform}
-- Include relevant hashtags and compelling call-to-action
-- Focus on professional, business-appropriate content
-- Keep the content authentic, engaging, and aligned with brand voice
+- Include relevant hashtags tailored specifically for {platform}'s audience
+
+
+
+USER FEEDBACK: {feedback}
 
 OUTPUT FORMAT: Provide the new refined copy only.
-If feedback is irrelevant, explain why it cannot be used for copy refinement.
-
-USER FEEDBACK: {feedback}"""
+If feedback is irrelevant, explain why it cannot be used for copy refinement."""
 
     try:
         # Use Groq to refine the content
         response = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Refine the {content_type} with this feedback"}
+                {"role": "user", "content": f"Refine the {content_type} with this feedback, considering the existing content"}
             ],
             model="deepseek-r1-distill-llama-70b",
             temperature=0.7,
@@ -276,14 +284,7 @@ USER FEEDBACK: {feedback}"""
 
         result = response.choices[0].message.content.strip()
 
-        # Check for refusal indicators
-        refusal_indicators = [
-            "cannot generate", "unable to create", "I apologize", "I'm sorry",
-            "cannot fulfill", "refuse", "inappropriate", "violates"
-        ]
-
-        if any(indicator.lower() in result.lower() for indicator in refusal_indicators):
-            return "INAPPROPRIATE", "The AI declined to produce this content. Please adjust your request."
+        
 
         # Clean up any thinking traces
         for tag in ["<think>", "</think>", "<reasoning>", "</reasoning>", "<notes>", "</notes>"]:
@@ -341,7 +342,7 @@ def run_app():
         st.session_state.input_error = api_error
 
     # Main Interface
-    st.markdown("<h1 class='gradient-header'>🚀 Professional Social Media Post Generator</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='gradient-header'>🚀 Social Media Post Generator</h1>", unsafe_allow_html=True)
 
     # Sidebar configuration
     with st.sidebar:
@@ -566,6 +567,11 @@ def run_app():
                                 status, result = refine_content("text", text_feedback, platform)
 
                                 if status == "SUCCESS":
+                                     # Clean up any thinking traces
+                                    for tag in ["<think>", "</think>", "<reasoning>", "</reasoning>", "<notes>", "</notes>"]:
+                                        if tag in result:
+                                            result = re.sub(f"{tag}.*?{tag.replace('<', '</') if not tag.startswith('</') else tag}", "", result, flags=re.DOTALL)
+
                                     st.session_state.social_copy = result
 
                                     # Update conversation history

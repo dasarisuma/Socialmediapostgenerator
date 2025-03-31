@@ -1,5 +1,7 @@
-#Social Media Post Generator
+Social Media Post Generator
+
 Overview
+
 The Social Media Post Generator is an AI-powered Streamlit application that helps you create engaging social media content with custom-generated text and images. This tool leverages advanced AI to produce platform-specific posts for LinkedIn, Twitter, and Instagram.
 🌟 Key Features
 
